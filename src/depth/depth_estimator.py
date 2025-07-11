@@ -10,6 +10,14 @@ import cv2
 import numpy as np
 from typing import Dict, Optional, Tuple
 import logging
+import sys
+from pathlib import Path
+sys.path.append(str(Path(__file__).parent.parent.parent / 'Depth-Anything'))
+
+# Add imports for transforms
+from depth_anything.util.transform import Resize, NormalizeImage, PrepareForNet
+from torchvision.transforms import Compose
+import argparse
 
 logger = logging.getLogger(__name__)
 
@@ -86,50 +94,55 @@ class DepthEstimator:
     
     def preprocess(self, image: np.ndarray) -> torch.Tensor:
         """Preprocess image for depth estimation"""
-        # Resize image
-        image_resized = cv2.resize(image, self.input_size)
+        # Convert to RGB and normalize to [0,1]
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB) / 255.0
         
-        # Convert to RGB if needed
-        if len(image_resized.shape) == 3 and image_resized.shape[2] == 3:
-            image_rgb = cv2.cvtColor(image_resized, cv2.COLOR_BGR2RGB)
-        else:
-            image_rgb = image_resized
+        transform = Compose([
+            Resize(
+                width=518,
+                height=518,
+                resize_target=False,
+                keep_aspect_ratio=True,
+                ensure_multiple_of=14,
+                resize_method='lower_bound',
+                image_interpolation_method=cv2.INTER_CUBIC,
+            ),
+            NormalizeImage(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+            PrepareForNet(),
+        ])
         
-        # Normalize to [0, 1]
-        image_normalized = image_rgb.astype(np.float32) / 255.0
+        image_dict = transform({'image': image})
+        image_transformed = image_dict['image']
         
-        # Convert to tensor and add batch dimension
-        image_tensor = torch.from_numpy(image_normalized).permute(2, 0, 1).unsqueeze(0)
-        
-        return image_tensor.to(self.device)
+        return torch.from_numpy(image_transformed).unsqueeze(0).to(self.device)
     
-    def postprocess(self, depth_tensor: torch.Tensor) -> np.ndarray:
-        """Postprocess depth tensor to numpy array"""
-        # Remove batch dimension and convert to numpy
-        depth_np = depth_tensor.squeeze().cpu().numpy()
-        
-        # Resize to output size
-        depth_resized = cv2.resize(depth_np, self.output_size)
-        
-        # Normalize depth values (assuming model outputs normalized depth)
-        depth_normalized = (depth_resized - depth_resized.min()) / (depth_resized.max() - depth_resized.min())
-        
-        return depth_normalized
+    def postprocess(self, depth_tensor: torch.Tensor, original_size: Tuple[int, int]) -> np.ndarray:
+        h, w = original_size
+        depth = torch.nn.functional.interpolate(
+            depth_tensor[None], (h, w), mode='bilinear', align_corners=False
+        )[0, 0]
+        depth = depth.cpu().numpy()
+        # Normalize for visualization
+        depth = (depth - depth.min()) / (depth.max() - depth.min()) * 255.0
+        depth = depth.astype(np.uint8)
+        return depth
     
     def estimate(self, image: np.ndarray) -> np.ndarray:
         """Estimate depth from RGB image"""
         try:
             with torch.no_grad():
                 # Preprocess
+                original_size = image.shape[:2]
                 input_tensor = self.preprocess(image)
                 
                 # Inference
                 depth_tensor = self.model(input_tensor)
                 
                 # Postprocess
-                depth_map = self.postprocess(depth_tensor)
+                depth_map = self.postprocess(depth_tensor, original_size)
+                colored_depth = cv2.applyColorMap(depth_map, cv2.COLORMAP_INFERNO)
                 
-                return depth_map
+                return colored_depth
                 
         except Exception as e:
             logger.error(f"Error in depth estimation: {e}")
@@ -156,17 +169,17 @@ class DepthEstimator:
         
         # Calculate accuracy metrics
         thresh = np.maximum((gt_depth / pred_depth), (pred_depth / gt_depth))
-        a1 = (thresh < 1.25).mean()
-        a2 = (thresh < 1.25 ** 2).mean()
-        a3 = (thresh < 1.25 ** 3).mean()
+        a1 = np.mean(thresh < 1.25)
+        a2 = np.mean(thresh < 1.25 ** 2)
+        a3 = np.mean(thresh < 1.25 ** 3)
         
         return {
-            'rmse': rmse,
-            'abs_rel': abs_rel,
-            'sq_rel': sq_rel,
-            'a1': a1,
-            'a2': a2,
-            'a3': a3
+            'rmse': float(rmse),
+            'abs_rel': float(abs_rel),
+            'sq_rel': float(sq_rel),
+            'a1': float(a1),
+            'a2': float(a2),
+            'a3': float(a3)
         }
     
     def save_model(self, path: str):
@@ -234,3 +247,26 @@ class DepthLoss(nn.Module):
         smoothness_loss = torch.mean(grad_x) + torch.mean(grad_y)
         
         return smoothness_loss 
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Run depth estimation on an image")
+    parser.add_argument('image_path', type=str, help='Path to input image')
+    args = parser.parse_args()
+    
+    # Dummy config, adjust as needed
+    config = {
+        'hardware': {'device': 'cuda' if torch.cuda.is_available() else 'cpu'},
+        'model': {'input_size': (518, 518), 'output_size': (480, 640)},  # Adjust output_size as needed
+        'optimization': {'tensorrt': False, 'fp16': False}
+    }
+    
+    estimator = DepthEstimator(config)
+    image = cv2.imread(args.image_path)
+    if image is None:
+        print(f"Failed to load image: {args.image_path}")
+        sys.exit(1)
+    
+    depth_colored = estimator.estimate(image)
+    cv2.imshow('Colored Depth Map', depth_colored)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows() 

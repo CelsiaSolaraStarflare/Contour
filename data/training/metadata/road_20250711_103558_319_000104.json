@@ -1,0 +1,29 @@
+{
+  "filename": "road_20250711_103558_319_000104.jpg",
+  "timestamp": "2025-07-11T10:35:58.321827",
+  "image_size": {
+    "width": 640,
+    "height": 480,
+    "channels": 3
+  },
+  "camera_info": {
+    "type": "webcam",
+    "resolution": [
+      640,
+      480
+    ],
+    "fps": 30
+  },
+  "collection_info": {
+    "count": 104,
+    "target_count": 3000,
+    "elapsed_time": 209.87301588058472
+  },
+  "gps": null,
+  "image_stats": {
+    "mean_brightness": 97.43221137152777,
+    "std_brightness": 58.45188530767245,
+    "min_value": 0,
+    "max_value": 255
+  }
+}

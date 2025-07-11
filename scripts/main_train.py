@@ -1,5 +1,5 @@
-"""
 #!/usr/bin/env python3
+
 """
 Main Training Script for Contour Project
 Handles training for depth estimation and potentially other components
@@ -11,7 +11,7 @@ from pathlib import Path
 import sys
 import os
 
-sys.path.append(str(Path(__file__).parent.parent / 'src'))
+sys.path.append(str(Path(__file__).parent.parent))
 
 # Configure logging
 logging.basicConfig(

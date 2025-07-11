@@ -1,0 +1,17 @@
+{
+  "total_images": 0,
+  "target_count": 3000,
+  "collection_time": 0,
+  "output_directory": "data\\training",
+  "image_directory": "data\\training\\images",
+  "metadata_directory": "data\\training\\metadata",
+  "gps_enabled": false,
+  "camera_info": {
+    "type": "webcam",
+    "resolution": [
+      640,
+      480
+    ],
+    "fps": 30
+  }
+}

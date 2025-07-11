@@ -21,10 +21,12 @@ import wandb
 
 # Add src to path
 import sys
-sys.path.append(str(Path(__file__).parent.parent / 'src'))
+sys.path.append(str(Path(__file__).parent.parent))
+
+import os
 
 from src.depth.depth_estimator import DepthEstimator, DepthLoss
-from src.utils.jetson_utils import setup_jetson, get_optimal_batch_size
+from src.utils.jetson_utils import get_optimal_batch_size
 from src.utils.camera import Camera
 
 # Configure logging
@@ -63,6 +65,8 @@ class DepthDataset(torch.utils.data.Dataset):
         # Load image
         image_path = self.image_files[idx]
         image = cv2.imread(str(image_path))
+        if image is None:
+            raise ValueError(f"Failed to load image: {image_path}")
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         
         # Load depth map
@@ -156,10 +160,6 @@ def train_depth_model(config_path: str):
     # Load configuration
     with open(config_path, 'r') as f:
         config = yaml.safe_load(f)
-    
-    # Setup Jetson Nano
-    if os.name == 'posix' and os.path.exists('/etc/nv_tegra_release'):
-        setup_jetson()
     
     # Setup device
     device = torch.device(config['hardware']['device'])

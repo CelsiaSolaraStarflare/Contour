@@ -17,13 +17,15 @@ import exifread
 from typing import Dict, List, Optional, Tuple
 import threading
 import queue
+import matplotlib.pyplot as plt
+import math
+from matplotlib.colors import LinearSegmentedColormap
 
 # Add src to path
 import sys
-sys.path.append(str(Path(__file__).parent.parent / 'src'))
+sys.path.append(str(Path(__file__).parent.parent))
 
 from src.utils.camera import Camera, CameraRecorder
-from src.utils.jetson_utils import setup_jetson
 
 # Configure logging
 logging.basicConfig(
@@ -219,6 +221,22 @@ class DataCollector:
                     logger.warning(f"Could not load image: {image_file}")
                     continue
                 
+                # Extract EXIF data
+                with open(image_file, 'rb') as f:
+                    tags = exifread.process_file(f)
+                
+                gps = self.extract_gps_from_exif(str(image_file))
+                
+                direction = None
+                if 'GPS GPSImgDirection' in tags:
+                    dir_val = tags['GPS GPSImgDirection'].values[0]
+                    direction = float(dir_val.num) / float(dir_val.den)
+                
+                focal = None
+                if 'EXIF FocalLength' in tags:
+                    focal_val = tags['EXIF FocalLength'].values[0]
+                    focal = float(focal_val.num) / float(focal_val.den)
+                
                 # Generate filename
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
                 new_filename = f"road_{timestamp}_{self.collected_count:06d}.jpg"
@@ -231,6 +249,9 @@ class DataCollector:
                 if success:
                     # Generate metadata
                     metadata = self._generate_metadata(new_filename, frame)
+                    metadata['gps'] = gps  # Override with real GPS if available
+                    metadata['direction'] = direction
+                    metadata['focal_length'] = focal
                     
                     # Save metadata
                     metadata_filename = f"{new_filename.replace('.jpg', '.json')}"
@@ -240,8 +261,12 @@ class DataCollector:
                         json.dump(metadata, f, indent=2)
                     
                     # Update GPS data
-                    if self.gps_enabled:
-                        self.gps_data[new_filename] = metadata['gps']
+                    if gps is not None:
+                        self.gps_data[new_filename] = {
+                            'gps': gps,
+                            'direction': direction,
+                            'focal_length': focal
+                        }
                     
                     self.collected_count += 1
                     
@@ -250,6 +275,12 @@ class DataCollector:
                 
             except Exception as e:
                 logger.error(f"Error processing {image_file}: {e}")
+        
+        if self.gps_data:
+            gps_summary_path = self.output_dir / 'gps_data.json'
+            with open(gps_summary_path, 'w') as f:
+                json.dump(self.gps_data, f, indent=2)
+            logger.info(f"GPS data saved to {gps_summary_path}")
         
         logger.info(f"Directory collection completed. Total collected: {self.collected_count}")
     
@@ -286,8 +317,13 @@ class DataCollector:
     
     def create_dataset_summary(self) -> Dict:
         """Create summary of collected dataset"""
+        # Count total images
+        images = list(self.images_dir.glob('*.jpg'))
+        total_images = len(images)
+        self.collected_count = total_images  # Update instance var for consistency
+        
         summary = {
-            'total_images': self.collected_count,
+            'total_images': total_images,
             'target_count': self.target_count,
             'collection_time': time.time() - self.start_time if self.start_time else 0,
             'output_directory': str(self.output_dir),
@@ -303,23 +339,112 @@ class DataCollector:
         
         # Calculate collection rate
         if summary['collection_time'] > 0:
-            summary['collection_rate'] = self.collected_count / summary['collection_time']
+            summary['collection_rate'] = total_images / summary['collection_time']
         
         # Add GPS statistics if available
-        if self.gps_data:
-            lats = [coord[0] for coord in self.gps_data.values()]
-            lons = [coord[1] for coord in self.gps_data.values()]
-            
-            summary['gps_stats'] = {
-                'min_lat': min(lats),
-                'max_lat': max(lats),
-                'min_lon': min(lons),
-                'max_lon': max(lons),
-                'center_lat': sum(lats) / len(lats),
-                'center_lon': sum(lons) / len(lons)
-            }
+        gps_summary_path = self.output_dir / 'gps_data.json'
+        if gps_summary_path.exists():
+            with open(gps_summary_path, 'r') as f:
+                gps_data = json.load(f)
+            if gps_data:
+                lats = [d['gps'][0] for d in gps_data.values() if d.get('gps')]
+                lons = [d['gps'][1] for d in gps_data.values() if d.get('gps')]
+                
+                summary['gps_stats'] = {
+                    'min_lat': min(lats) if lats else None,
+                    'max_lat': max(lats) if lats else None,
+                    'min_lon': min(lons) if lons else None,
+                    'max_lon': max(lons) if lons else None,
+                    'center_lat': sum(lats) / len(lats) if lats else None,
+                    'center_lon': sum(lons) / len(lons) if lons else None
+                }
         
         return summary
+
+    def visualize_data(self):
+        """Visualize the collected data on a pseudo map"""
+        gps_data = {}
+        gps_summary_path = self.output_dir / 'gps_data.json'
+        if gps_summary_path.exists():
+            with open(gps_summary_path, 'r') as f:
+                gps_data = json.load(f)
+        
+        if not gps_data:
+            logger.warning("No GPS data to visualize")
+            return
+        
+        lats = []
+        lons = []
+        directions = []
+        focals = []
+        for data in gps_data.values():
+            if 'gps' in data and data['gps']:
+                lats.append(data['gps'][0])
+                lons.append(data['gps'][1])
+                directions.append(data.get('direction'))
+                focals.append(data.get('focal_length', 0))
+        
+        if not lats:
+            logger.warning("No valid points to plot")
+            return
+        
+        # Normalize focals
+        valid_focals = [f for f in focals if f > 0]
+        min_f = min(valid_focals) if valid_focals else 0
+        max_f = max(valid_focals) if valid_focals else 1
+        if min_f == max_f:
+            norm_focals = [0.5] * len(focals)
+        else:
+            norm_focals = [(f - min_f) / (max_f - min_f) if f > 0 else 0 for f in focals]
+        
+        # Colormap red to violet
+        cmap = LinearSegmentedColormap.from_list("red_violet", ['red', 'violet'])
+        
+        # Plot
+        fig, ax = plt.subplots()
+        scatter = ax.scatter(lons, lats, c=norm_focals, cmap=cmap, s=50)
+        plt.colorbar(scatter, label='Normalized Magnification (Focal Length)')
+        
+        # Add arrows
+        for i, dir_ in enumerate(directions):
+            if dir_ is not None:
+                arrow_length = 0.0001  # Adjust based on scale
+                dx = arrow_length * math.cos(math.radians(dir_))
+                dy = arrow_length * math.sin(math.radians(dir_))
+                ax.arrow(lons[i], lats[i], dx, dy, head_width=0.00005, head_length=0.00005, fc='black', ec='black')
+        
+        ax.set_xlabel('Longitude')
+        ax.set_ylabel('Latitude')
+        ax.set_title('Pseudo Map of Image Locations')
+        plt.show()
+
+    def test_exif(self, image_path: str):
+        """Test EXIF extraction on a single image"""
+        import exifread
+        logger.info(f"Testing EXIF on {image_path}")
+        
+        if not Path(image_path).exists():
+            logger.error(f"Image not found: {image_path}")
+            return
+        
+        with open(image_path, 'rb') as f:
+            tags = exifread.process_file(f)
+        
+        gps = self.extract_gps_from_exif(image_path)
+        
+        direction = None
+        if 'GPS GPSImgDirection' in tags:
+            dir_val = tags['GPS GPSImgDirection'].values[0]
+            direction = float(dir_val.num) / float(dir_val.den)
+        
+        focal = None
+        if 'EXIF FocalLength' in tags:
+            focal_val = tags['EXIF FocalLength'].values[0]
+            focal = float(focal_val.num) / float(focal_val.den)
+        
+        print(f"GPS: {gps}")
+        print(f"Direction: {direction}")
+        print(f"Focal Length: {focal}")
 
 
 def collect_from_iphone(config: Dict):
@@ -366,6 +491,8 @@ def main():
                        help='Enable GPS simulation')
     parser.add_argument('--from-dir', type=str,
                        help='Collect from existing directory instead of camera')
+    parser.add_argument('--test-exif', type=str,
+                       help='Test EXIF extraction on a single image')
     
     args = parser.parse_args()
     
@@ -384,13 +511,16 @@ def main():
         'gps_enabled': args.gps
     }
     
+    collector = DataCollector(config)
+    
     try:
-        # Setup Jetson Nano
-        setup_jetson()
+        
+        if args.test_exif:
+            collector.test_exif(args.test_exif)
+            return
         
         if args.from_dir:
             # Collect from existing directory
-            collector = DataCollector(config)
             collector.collect_from_directory(args.from_dir)
         else:
             # Collect from camera
@@ -400,7 +530,6 @@ def main():
                 collect_from_webcam(config)
         
         # Create dataset summary
-        collector = DataCollector(config)
         summary = collector.create_dataset_summary()
         
         # Save summary
@@ -411,6 +540,8 @@ def main():
         logger.info(f"Dataset summary saved to {summary_path}")
         logger.info(f"Collection completed: {summary['total_images']} images")
         
+        collector.visualize_data()
+    
     except KeyboardInterrupt:
         logger.info("Data collection interrupted by user")
     except Exception as e:

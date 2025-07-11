@@ -1,5 +1,5 @@
-"""
 #!/usr/bin/env python3
+
 """
 Standalone Depth Estimation Validation Script
 Validates Depth Anything V2 model accuracy
@@ -18,7 +18,7 @@ import wandb
 import os
 import sys
 
-sys.path.append(str(Path(__file__).parent.parent / 'src'))
+sys.path.append(str(Path(__file__).parent.parent))
 
 from src.depth.depth_estimator import DepthEstimator, DepthLoss
 from src.utils.jetson_utils import setup_jetson
@@ -53,6 +53,8 @@ class DepthDataset(torch.utils.data.Dataset):
         import numpy as np
         image_path = self.image_files[idx]
         image = cv2.imread(str(image_path))
+        if image is None:
+            raise ValueError(f"Failed to load image: {image_path}")
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         
         depth_path = self.depth_dir / f"{image_path.stem}_depth.npy"
@@ -124,9 +126,6 @@ class DepthDataset(torch.utils.data.Dataset):
 def validate_depth_model(config_path: str, model_path: str):
     with open(config_path, 'r') as f:
         config = yaml.safe_load(f)
-    
-    if os.name == 'posix' and os.path.exists('/etc/nv_tegra_release'):
-        setup_jetson()
     
     device = torch.device(config['hardware']['device'])
     
