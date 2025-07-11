@@ -1,0 +1,90 @@
+# Object Detection Configuration
+# Model: SSD with MobileNetV3-Small
+
+model:
+  name: "ssd_mobilenet_v3_small"
+  pretrained: true
+  input_size: [300, 300]
+  num_classes: 3  # background, traffic_sign, lane_marking
+  
+  # Anchor configuration
+  anchors:
+    aspect_ratios: [[2], [2, 3], [2, 3], [2, 3], [2], [2]]
+    scales: [0.07, 0.15, 0.33, 0.51, 0.69, 0.87, 1.05]
+
+training:
+  batch_size: 16
+  learning_rate: 1e-3
+  epochs: 150
+  optimizer: "sgd"
+  momentum: 0.9
+  weight_decay: 5e-4
+  scheduler: "step"
+  lr_steps: [80, 110]
+  lr_gamma: 0.1
+  
+  # Loss function weights
+  loss_weights:
+    classification_loss: 1.0
+    localization_loss: 1.0
+
+data:
+  train_path: "data/training/annotations"
+  val_path: "data/validation/annotations"
+  test_path: "data/test/annotations"
+  
+  # Class names
+  classes:
+    0: "background"
+    1: "traffic_sign"
+    2: "lane_marking"
+  
+  # Data augmentation
+  augmentation:
+    horizontal_flip: true
+    vertical_flip: false
+    rotation: 5
+    brightness: 0.1
+    contrast: 0.1
+    saturation: 0.1
+    hue: 0.05
+
+optimization:
+  # TensorRT optimization
+  tensorrt: true
+  fp16: true
+  int8: false
+  
+  # Model pruning
+  pruning:
+    enabled: true
+    sparsity: 0.2
+    method: "magnitude"
+
+evaluation:
+  metrics:
+    - "mAP"
+    - "precision"
+    - "recall"
+    - "f1_score"
+  
+  # Target performance
+  target_map: 0.85
+  target_fps: 20
+
+hardware:
+  device: "cuda"
+  num_workers: 4
+  pin_memory: true
+  
+  # Jetson Nano specific
+  jetson:
+    power_mode: "MAXN"
+    gpu_freq: 921600000
+    cpu_freq: 1479000000
+
+logging:
+  log_dir: "logs/detection"
+  save_freq: 10
+  eval_freq: 5
+  wandb_project: "contour-detection" 

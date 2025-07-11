@@ -1,0 +1,77 @@
+# Depth Estimation Configuration
+# Model: Depth Anything V2 Small
+
+model:
+  name: "depth_anything_v2_small"
+  pretrained: true
+  input_size: [640, 480]
+  output_size: [640, 480]
+
+training:
+  batch_size: 8
+  learning_rate: 1e-4
+  epochs: 100
+  optimizer: "adam"
+  scheduler: "cosine"
+  warmup_epochs: 5
+  
+  # Loss function weights
+  loss_weights:
+    depth_loss: 1.0
+    edge_loss: 0.1
+    smoothness_loss: 0.01
+
+data:
+  train_path: "data/training/images"
+  val_path: "data/validation/images"
+  test_path: "data/test/images"
+  
+  # Data augmentation
+  augmentation:
+    horizontal_flip: true
+    vertical_flip: false
+    rotation: 10
+    brightness: 0.2
+    contrast: 0.2
+    saturation: 0.2
+
+optimization:
+  # TensorRT optimization
+  tensorrt: true
+  fp16: true
+  int8: false
+  
+  # Model pruning
+  pruning:
+    enabled: true
+    sparsity: 0.3
+    method: "magnitude"
+
+evaluation:
+  metrics:
+    - "rmse"
+    - "abs_rel"
+    - "sq_rel"
+    - "a1"
+    - "a2"
+    - "a3"
+  
+  # Target accuracy: 0.08m
+  target_rmse: 0.08
+
+hardware:
+  device: "cuda"
+  num_workers: 4
+  pin_memory: true
+  
+  # Jetson Nano specific
+  jetson:
+    power_mode: "MAXN"
+    gpu_freq: 921600000
+    cpu_freq: 1479000000
+
+logging:
+  log_dir: "logs/depth"
+  save_freq: 10
+  eval_freq: 5
+  wandb_project: "contour-depth" 
