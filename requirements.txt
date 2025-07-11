@@ -1,43 +1,43 @@
 # Core ML and Computer Vision
-torch==1.9.0
-torchvision==0.10.0
-opencv-python==4.5.5
-numpy>=1.21.0
-Pillow>=8.3.0
+torch
+torchvision
+opencv-python
+numpy
+Pillow
 
 # Depth Estimation
-depth-anything @ git+https://github.com/LiheYoung/Depth-Anything.git
+#depth-anything @ git+https://github.com/LiheYoung/Depth-Anything.git
 
 # Object Detection
-timm>=0.6.0
-albumentations>=1.1.0
+timm
+albumentations
 
 # 3D Reconstruction
-gsplat==1.0.0
-open3d>=0.15.0
-trimesh>=3.9.0
+gsplat
+open3d
+trimesh
 
 # Localization and Search
-faiss-gpu==1.7.4
-scikit-learn>=1.0.0
+faiss-cpu
+scikit-learn
 
 # Data Processing
-exifread==3.0.0
-pandas>=1.3.0
-matplotlib>=3.4.0
-seaborn>=0.11.0
+exifread
+pandas
+matplotlib
+seaborn
 
 # Configuration and Utilities
-PyYAML>=6.0
+PyYAML
 argparse
-tqdm>=4.62.0
-wandb>=0.12.0
+tqdm
+wandb
 
 # Testing
-pytest>=6.2.0
-pytest-cov>=2.12.0
+pytest
+pytest-cov
 
 # Development
-black>=21.0.0
-flake8>=3.9.0
-isort>=5.9.0 
+black
+flake8
+isort

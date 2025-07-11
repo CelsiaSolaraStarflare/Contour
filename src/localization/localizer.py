@@ -16,6 +16,9 @@ from pathlib import Path
 import pickle
 import json
 from tqdm import tqdm
+import pyheif
+from PIL import Image
+import io
 
 logger = logging.getLogger(__name__)
 
@@ -269,26 +272,36 @@ class Localizer:
         if image_name in gps_data:
             return gps_data[image_name]
         
-        # Try to extract from EXIF
-        try:
-            with open(image_path, 'rb') as f:
-                tags = exifread.process_file(f)
-            
-            if 'GPS GPSLatitude' in tags and 'GPS GPSLongitude' in tags:
-                lat = self._convert_to_degrees(tags['GPS GPSLatitude'].values)
-                lon = self._convert_to_degrees(tags['GPS GPSLongitude'].values)
-                
-                # Apply hemisphere
-                if 'GPS GPSLatitudeRef' in tags and tags['GPS GPSLatitudeRef'].values == 'S':
-                    lat = -lat
-                if 'GPS GPSLongitudeRef' in tags and tags['GPS GPSLongitudeRef'].values == 'W':
-                    lon = -lon
-                
-                return (lat, lon)
-                
-        except Exception as e:
-            logger.debug(f"Could not extract GPS from EXIF for {image_path}: {e}")
+        file_ext = image_path.suffix.lower()
+        if file_ext in ['.heic', '.heif']:
+            try:
+                heif_file = pyheif.read(str(image_path))
+                img = Image.open(io.BytesIO(heif_file.data))
+                exif_data = img.getexif()
+                tags = {}
+                for tag_id, value in exif_data.items():
+                    tags[tag_id] = value
+            except Exception as e:
+                logger.debug(f"Could not extract GPS from HEIC EXIF for {image_path}: {e}")
+                return None
+        else:
+            try:
+                with open(image_path, 'rb') as f:
+                    tags = exifread.process_file(f)
+            except Exception as e:
+                logger.debug(f"Could not extract GPS from EXIF for {image_path}: {e}")
+                return None
         
+        if 'GPS GPSLatitude' in tags and 'GPS GPSLongitude' in tags:
+            lat = self._convert_to_degrees(tags['GPS GPSLatitude'].values)
+            lon = self._convert_to_degrees(tags['GPS GPSLongitude'].values)
+            
+            if 'GPS GPSLatitudeRef' in tags and tags['GPS GPSLatitudeRef'].values == 'S':
+                lat = -lat
+            if 'GPS GPSLongitudeRef' in tags and tags['GPS GPSLongitudeRef'].values == 'W':
+                lon = -lon
+            
+            return (lat, lon)
         return None
     
     def _convert_to_degrees(self, values) -> float:

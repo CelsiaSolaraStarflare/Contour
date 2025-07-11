@@ -158,7 +158,8 @@ def train_depth_model(config_path: str):
         config = yaml.safe_load(f)
     
     # Setup Jetson Nano
-    setup_jetson()
+    if os.name == 'posix' and os.path.exists('/etc/nv_tegra_release'):
+        setup_jetson()
     
     # Setup device
     device = torch.device(config['hardware']['device'])
